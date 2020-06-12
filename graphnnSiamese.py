@@ -8,29 +8,29 @@ from sklearn.metrics import roc_auc_score
 def graph_embed(X, msg_mask, N_x, N_embed, N_o, iter_level, Wnode, Wembed, W_output, b_output):
     #X -- affine(W1) -- ReLU -- (Message -- affine(W2) -- add (with aff W1)
     # -- ReLU -- )* MessageAll  --  output
-    node_val = tf.reshape(tf.matmul( tf.reshape(X, [-1, N_x]) , Wnode),
-            [tf.shape(X)[0], -1, N_embed])
+    node_val = tf.compat.v1.reshape(tf.compat.v1.matmul( tf.compat.v1.reshape(X, [-1, N_x]) , Wnode),
+            [tf.compat.v1.shape(X)[0], -1, N_embed])
     
-    cur_msg = tf.nn.relu(node_val)   #[batch, node_num, embed_dim]
+    cur_msg = tf.compat.v1.nn.relu(node_val)   #[batch, node_num, embed_dim]
     for t in range(iter_level):
         #Message convey
-        Li_t = tf.matmul(msg_mask, cur_msg)  #[batch, node_num, embed_dim]
+        Li_t = tf.compat.v1.matmul(msg_mask, cur_msg)  #[batch, node_num, embed_dim]
         #Complex Function
-        cur_info = tf.reshape(Li_t, [-1, N_embed])
+        cur_info = tf.compat.v1.reshape(Li_t, [-1, N_embed])
         for Wi in Wembed:
             if (Wi == Wembed[-1]):
-                cur_info = tf.matmul(cur_info, Wi)
+                cur_info = tf.compat.v1.matmul(cur_info, Wi)
             else:
-                cur_info = tf.nn.relu(tf.matmul(cur_info, Wi))
-        neigh_val_t = tf.reshape(cur_info, tf.shape(Li_t))
+                cur_info = tf.compat.v1.nn.relu(tf.compat.v1.matmul(cur_info, Wi))
+        neigh_val_t = tf.compat.v1.reshape(cur_info, tf.compat.v1.shape(Li_t))
         #Adding
         tot_val_t = node_val + neigh_val_t
         #Nonlinearity
-        tot_msg_t = tf.nn.tanh(tot_val_t)
+        tot_msg_t = tf.compat.v1.nn.tanh(tot_val_t)
         cur_msg = tot_msg_t   #[batch, node_num, embed_dim]
 
-    g_embed = tf.reduce_sum(cur_msg, 1)   #[batch, embed_dim]
-    output = tf.matmul(g_embed, W_output) + b_output
+    g_embed = tf.compat.v1.reduce_sum(cur_msg, 1)   #[batch, embed_dim]
+    output = tf.compat.v1.matmul(g_embed, W_output) + b_output
     
     return output
 
@@ -44,71 +44,72 @@ class graphnn(object):
                     N_o,
                     ITER_LEVEL,
                     lr,
-                    device = '/gpu:0'
+                    device='/CPU:0'
                 ):
 
         self.NODE_LABEL_DIM = N_x
 
-        tf.reset_default_graph()
-        with tf.device(device):
-            Wnode = tf.Variable(tf.truncated_normal(
+        tf.compat.v1.reset_default_graph()
+        tf.compat.v1.disable_eager_execution()
+        with tf.compat.v1.device(device):
+            Wnode = tf.compat.v1.Variable(tf.compat.v1.truncated_normal(
                 shape = [N_x, N_embed], stddev = 0.1, dtype = Dtype))
             Wembed = []
             for i in range(depth_embed):
-                Wembed.append(tf.Variable(tf.truncated_normal(
+                Wembed.append(tf.compat.v1.Variable(tf.compat.v1.truncated_normal(
                     shape = [N_embed, N_embed], stddev = 0.1, dtype = Dtype)))
 
-            W_output = tf.Variable(tf.truncated_normal(
+            W_output = tf.compat.v1.Variable(tf.compat.v1.truncated_normal(
                 shape = [N_embed, N_o], stddev = 0.1, dtype = Dtype))
-            b_output = tf.Variable(tf.constant(0, shape = [N_o], dtype = Dtype))
-            
-            X1 = tf.placeholder(Dtype, [None, None, N_x]) #[B, N_node, N_x]
-            msg1_mask = tf.placeholder(Dtype, [None, None, None])
+            b_output = tf.compat.v1.Variable(tf.compat.v1.constant(0, shape = [N_o], dtype = Dtype))
+            tf.compat.v1.disable_eager_execution()
+            X1 = tf.compat.v1.placeholder(Dtype, [None, None, N_x]) #[B, N_node, N_x]
+            msg1_mask = tf.compat.v1.placeholder(Dtype, [None, None, None])
                                             #[B, N_node, N_node]
             self.X1 = X1
             self.msg1_mask = msg1_mask
             embed1 = graph_embed(X1, msg1_mask, N_x, N_embed, N_o, ITER_LEVEL,
                     Wnode, Wembed, W_output, b_output)  #[B, N_x]
 
-            X2 = tf.placeholder(Dtype, [None, None, N_x])
-            msg2_mask = tf.placeholder(Dtype, [None, None, None])
+            X2 = tf.compat.v1.placeholder(Dtype, [None, None, N_x])
+            msg2_mask = tf.compat.v1.placeholder(Dtype, [None, None, None])
             self.X2 = X2
             self.msg2_mask = msg2_mask
             embed2 = graph_embed(X2, msg2_mask, N_x, N_embed, N_o, ITER_LEVEL,
                     Wnode, Wembed, W_output, b_output)
 
-            label = tf.placeholder(Dtype, [None, ]) #same: 1; different:-1
+            label = tf.compat.v1.placeholder(Dtype, [None, ]) #same: 1; different:-1
             self.label = label
             self.embed1 = embed1
 
             
-            cos = tf.reduce_sum(embed1*embed2, 1) / tf.sqrt(tf.reduce_sum(
-                embed1**2, 1) * tf.reduce_sum(embed2**2, 1) + 1e-10)
+            cos = tf.compat.v1.reduce_sum(embed1*embed2, 1) / tf.compat.v1.sqrt(tf.compat.v1.reduce_sum(
+                embed1**2, 1) * tf.compat.v1.reduce_sum(embed2**2, 1) + 1e-10)
 
             diff = -cos
             self.diff = diff
-            loss = tf.reduce_mean( (diff + label) ** 2 )
+            loss = tf.compat.v1.reduce_mean( (diff + label) ** 2 )
             self.loss = loss
 
-            optimizer = tf.train.AdamOptimizer(learning_rate=lr).minimize(loss)
+            optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate=lr).minimize(loss)
             self.optimizer = optimizer
     
     def say(self, string):
-        print string
+        print(string)
         if self.log_file != None:
             self.log_file.write(string+'\n')
     
     def init(self, LOAD_PATH, LOG_PATH):
-        config = tf.ConfigProto()
+        config = tf.compat.v1.ConfigProto()
         config.gpu_options.allow_growth = True
-        sess = tf.Session(config=config)
-        saver = tf.train.Saver()
+        sess = tf.compat.v1.Session(config=config)
+        saver = tf.compat.v1.train.Saver()
         self.sess = sess
         self.saver = saver
         self.log_file = None
         if (LOAD_PATH is not None):
             if LOAD_PATH == '#LATEST#':
-                checkpoint_path = tf.train.latest_checkpoint('./')
+                checkpoint_path = tf.compat.v1.train.latest_checkpoint('./')
             else:
                 checkpoint_path = LOAD_PATH
             saver.restore(sess, checkpoint_path)
@@ -117,7 +118,7 @@ class graphnn(object):
             self.say('{}, model loaded from file: {}'.format(
                 datetime.datetime.now(), checkpoint_path))
         else:
-            sess.run(tf.global_variables_initializer())
+            sess.run(tf.compat.v1.global_variables_initializer())
             if LOG_PATH != None:
                 self.log_file = open(LOG_PATH, 'w')
             self.say('Training start @ {}'.format(datetime.datetime.now()))
